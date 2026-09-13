@@ -1,0 +1,21 @@
+# Connectome data (1+ GB) and the derived subgraph -- re-download with
+# scripts/01_download_data.py, rebuild with scripts/02_build_subgraph.py.
+data/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Python bytecode / tooling caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editor / OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

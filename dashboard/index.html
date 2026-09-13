@@ -2,16 +2,20 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
 <title>Fly Brain — Live Connectome Dashboard</title>
 <style>
   :root {
     --bg: #0b0e14;
     --panel: #141925;
+    --raster: #05070c;
     --primary: #7dd3fc;
     --secondary: #a78bfa;
-    --accent: #f472b6;
     --text: #e5e7eb;
+    --text-2: #b4b9c3;
     --muted: #6b7280;
+    --border: rgba(255,255,255,0.06);
   }
   * { box-sizing: border-box; }
   body {
@@ -20,6 +24,7 @@
     color: var(--text);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     padding: 24px;
+    min-height: 100vh;
   }
   h1 {
     font-size: 20px;
@@ -31,17 +36,15 @@
     font-weight: 700;
   }
   .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
-  .grid {
-    display: grid;
-    grid-template-columns: 2fr 1fr;
-    gap: 16px;
-  }
+  .grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 16px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
   .card {
     background: var(--panel);
     border-radius: 14px;
     padding: 16px;
     box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-    border: 1px solid rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    min-width: 0;
   }
   .card h2 {
     font-size: 13px;
@@ -50,33 +53,47 @@
     color: var(--muted);
     margin: 0 0 10px 0;
   }
-  canvas { width: 100%; display: block; border-radius: 8px; background: #05070c; }
-  #raster { height: 320px; }
-  #video { width: 100%; border-radius: 8px; background: #000; transform: scaleX(-1); }
-  .stat-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  .raster-wrap { position: relative; }
+  canvas { width: 100%; display: block; border-radius: 8px; background: var(--raster); }
+  #raster { height: 360px; cursor: crosshair; }
+  #tooltip {
+    position: absolute; pointer-events: none; display: none;
+    background: rgba(11,14,20,0.96); border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 8px; padding: 8px 10px; font-size: 12px; line-height: 1.45;
+    max-width: 260px; z-index: 2; color: var(--text);
+  }
+  #tooltip .k { color: var(--muted); }
+  #tooltip .swatch { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px; vertical-align:-1px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 10px; font-size: 12px; color: var(--text-2); }
+  .legend .chip {
+    display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 999px;
+    border: 1px solid var(--border); cursor: pointer; user-select: none; background: rgba(255,255,255,0.02);
+  }
+  .legend .chip.off { opacity: 0.35; text-decoration: line-through; }
+  .legend .chip .swatch { width: 10px; height: 10px; border-radius: 2px; }
+  .legend .chip .n { color: var(--muted); }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  #video { width: 100%; border-radius: 8px; background: #000; transform: scaleX(-1); aspect-ratio: 4 / 3; }
+  .stat-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; border-bottom: 1px solid var(--border); gap: 8px; }
   .stat-row span:first-child { color: var(--muted); }
   .stat-row span:last-child { font-variant-numeric: tabular-nums; color: var(--primary); }
   .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
   button {
     background: linear-gradient(135deg, var(--primary), var(--secondary));
-    border: none;
-    color: #0b0e14;
-    font-weight: 600;
-    padding: 10px 14px;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 13px;
+    border: none; color: #0b0e14; font-weight: 600; padding: 10px 14px;
+    border-radius: 8px; cursor: pointer; font-size: 13px;
   }
-  button.secondary {
-    background: transparent;
-    color: var(--text);
-    border: 1px solid rgba(255,255,255,0.15);
-  }
+  button.secondary { background: transparent; color: var(--text); border: 1px solid rgba(255,255,255,0.15); }
+  button:disabled { opacity: 0.5; cursor: default; }
   input[type=range] { width: 100%; accent-color: var(--primary); }
+  label { font-size: 12px; color: var(--muted); }
+  .meter { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.06); overflow: hidden; margin-top: 4px; }
+  .meter > div { height: 100%; width: 0%; background: linear-gradient(90deg, var(--primary), var(--secondary)); transition: width 80ms linear; }
   .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
   .connected { background: #4ade80; box-shadow: 0 0 8px #4ade80; }
   .disconnected { background: #f87171; }
-  .legend { font-size: 12px; color: var(--muted); margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -91,83 +108,218 @@
 <div class="grid">
   <div class="card">
     <h2>Neural Activity — Spike Raster</h2>
-    <canvas id="raster"></canvas>
-    <div class="legend">Each dot = one neuron firing. Rows are ordered by connection weight (top = most-connected hubs). Scrolls left to right.</div>
+    <div class="raster-wrap">
+      <canvas id="raster"></canvas>
+      <div id="tooltip"></div>
+    </div>
+    <div class="legend" id="legend"></div>
+    <div class="hint">Each dot is one neuron firing, coloured by cell class. Rows are ordered by connection weight (top = biggest hubs); the pale band in the left gutter marks the neurons that receive external stimulus. Time scrolls left to right. Hover a row for the neuron's identity; click a class in the legend to hide or show it.</div>
   </div>
 
   <div class="card">
     <h2>Input Feed &amp; Stats</h2>
     <video id="video" autoplay muted playsinline></video>
     <div class="controls">
-      <button id="webcamBtn">Enable Webcam Input</button>
-      <button id="manualBtn" class="secondary">Use Manual Slider Instead</button>
+      <div class="row">
+        <button id="webcamBtn">Enable Webcam Input</button>
+        <button id="manualBtn" class="secondary">Use Manual Slider</button>
+      </div>
       <div>
-        <label for="stimSlider" style="font-size:12px;color:var(--muted);">Manual stimulus intensity</label>
+        <label for="stimSlider">Manual stimulus intensity</label>
         <input type="range" id="stimSlider" min="0" max="100" value="5">
+      </div>
+      <div>
+        <label>Stimulus currently sent to the sensory neurons: <span id="stimValue">5%</span></label>
+        <div class="meter"><div id="stimMeter"></div></div>
+      </div>
+      <div class="row">
+        <button id="resetBtn" class="secondary">Reset Network State</button>
       </div>
     </div>
     <div style="margin-top:14px;">
       <div class="stat-row"><span>Neurons in subgraph</span><span id="statNeurons">—</span></div>
+      <div class="stat-row"><span>Synaptic connections</span><span id="statEdges">—</span></div>
+      <div class="stat-row"><span>Sensory / inhibitory neurons</span><span id="statPops">—</span></div>
       <div class="stat-row"><span>Spikes this frame</span><span id="statSpikes">—</span></div>
-      <div class="stat-row"><span>Mean firing rate</span><span id="statRate">—</span></div>
+      <div class="stat-row"><span>Mean firing rate (per neuron)</span><span id="statRate">—</span></div>
       <div class="stat-row"><span>Sim step rate</span><span id="statHz">—</span></div>
     </div>
   </div>
 </div>
 
 <script>
+// ---- Palette: categorical slots in fixed order (validated for the dark raster surface) ----
+const CLASS_COLORS = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'];
+const OTHER_COLOR = '#9aa0a8';
+const MAX_CLASSES = 7;          // top classes by neuron count get their own colour; the rest fold into "Other"
+const GUTTER = 6;               // px column at the left marking sensory rows
+const HISTORY_LEN = 240;        // frames kept on screen (~8 s at 30 Hz)
+
 const raster = document.getElementById('raster');
 const rctx = raster.getContext('2d');
-const dpr = window.devicePixelRatio || 1;
+const tooltip = document.getElementById('tooltip');
+const $ = id => document.getElementById(id);
 
-let numNeurons = 0;
-let history = [];          // rolling buffer of spike-id arrays, one per frame
-const HISTORY_LEN = 240;   // ~8s at 30Hz
+let neurons = [];               // metadata rows, in raster row order
+let info = { n: 0, step_hz: 30 };
+let rowColor = [];              // per-neuron colour
+let rowClass = [];              // per-neuron legend key
+let hiddenClasses = new Set();
+let history = [];               // rolling buffer of spike-id arrays, one per frame
+let hoverRow = -1;
 
-function resizeCanvas() {
+// ---- Canvas sizing ----
+function cssSize() {
   const rect = raster.getBoundingClientRect();
-  raster.width = rect.width * dpr;
-  raster.height = 320 * dpr;
-  rctx.scale(dpr, dpr);
+  return { w: rect.width, h: rect.height };
+}
+function resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const { w, h } = cssSize();
+  raster.width = Math.max(1, Math.round(w * dpr));
+  raster.height = Math.max(1, Math.round(h * dpr));
+  rctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawRaster();
 }
 window.addEventListener('resize', resizeCanvas);
 
+// ---- Drawing ----
 function drawRaster() {
-  const w = raster.width / dpr;
-  const h = raster.height / dpr;
-  rctx.fillStyle = '#05070c';
+  const { w, h } = cssSize();
+  rctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--raster').trim() || '#05070c';
   rctx.fillRect(0, 0, w, h);
-  if (numNeurons === 0) return;
+  const n = neurons.length;
+  if (n === 0) return;
 
-  const colW = w / HISTORY_LEN;
-  const rowH = h / numNeurons;
+  const rowH = h / n;
+  const plotW = w - GUTTER;
+  const colW = plotW / HISTORY_LEN;
+  const dotH = Math.max(1, rowH);
+  const dotW = Math.max(1, colW);
 
-  history.forEach((spikeIds, col) => {
-    const x = col * colW;
-    const hue = 190 + (col / HISTORY_LEN) * 60;
-    rctx.fillStyle = `hsl(${hue}, 90%, 65%)`;
-    spikeIds.forEach(id => {
-      rctx.fillRect(x, id * rowH, Math.max(1, colW), Math.max(1, rowH));
-    });
+  // Sensory gutter band.
+  rctx.fillStyle = 'rgba(229,231,235,0.28)';
+  for (let i = 0; i < n; i++) {
+    if (neurons[i].sensory) rctx.fillRect(0, i * rowH, GUTTER - 2, dotH);
+  }
+
+  // Hovered row highlight.
+  if (hoverRow >= 0) {
+    rctx.fillStyle = 'rgba(255,255,255,0.08)';
+    rctx.fillRect(GUTTER, hoverRow * rowH, plotW, Math.max(2, rowH));
+  }
+
+  // Spikes, batched by colour so we only switch fillStyle a handful of times.
+  const byColor = new Map();
+  const offset = HISTORY_LEN - history.length;   // right-align so new frames appear at the right edge
+  history.forEach((spikeIds, k) => {
+    const x = GUTTER + (offset + k) * colW;
+    for (const id of spikeIds) {
+      if (hiddenClasses.has(rowClass[id])) continue;
+      let arr = byColor.get(rowColor[id]);
+      if (!arr) byColor.set(rowColor[id], arr = []);
+      arr.push(x, id * rowH);
+    }
   });
+  for (const [color, pts] of byColor) {
+    rctx.fillStyle = color;
+    for (let i = 0; i < pts.length; i += 2) rctx.fillRect(pts[i], pts[i + 1], dotW, dotH);
+  }
 }
 
+// ---- Legend / class colours ----
+function assignColors() {
+  const counts = new Map();
+  for (const m of neurons) {
+    const key = (m.class || '').trim() || 'unlabelled';
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  const slot = new Map();
+  ranked.slice(0, MAX_CLASSES).forEach(([key], i) => slot.set(key, CLASS_COLORS[i]));
+  const otherCount = ranked.slice(MAX_CLASSES).reduce((s, [, c]) => s + c, 0);
+
+  rowColor = neurons.map(m => slot.get((m.class || '').trim() || 'unlabelled') || OTHER_COLOR);
+  rowClass = neurons.map(m => slot.has((m.class || '').trim() || 'unlabelled') ? ((m.class || '').trim() || 'unlabelled') : 'Other');
+
+  const legend = $('legend');
+  legend.innerHTML = '';
+  const entries = ranked.slice(0, MAX_CLASSES).map(([key, c]) => [key, c, slot.get(key)]);
+  if (otherCount) entries.push(['Other', otherCount, OTHER_COLOR]);
+  for (const [key, count, color] of entries) {
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.innerHTML = `<span class="swatch" style="background:${color}"></span><span>${escapeHtml(key)}</span><span class="n">${count}</span>`;
+    chip.title = 'Click to hide/show this class';
+    chip.onclick = () => {
+      if (hiddenClasses.has(key)) hiddenClasses.delete(key); else hiddenClasses.add(key);
+      chip.classList.toggle('off', hiddenClasses.has(key));
+      drawRaster();
+    };
+    legend.appendChild(chip);
+  }
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// ---- Hover tooltip ----
+raster.addEventListener('mousemove', (e) => {
+  const n = neurons.length;
+  if (!n) return;
+  const rect = raster.getBoundingClientRect();
+  const y = e.clientY - rect.top;
+  const row = Math.min(n - 1, Math.max(0, Math.floor(y / (rect.height / n))));
+  if (row !== hoverRow) { hoverRow = row; drawRaster(); }
+  const m = neurons[row];
+  const recent = history.slice(-Math.round(info.step_hz || 30)).reduce((s, arr) => s + (arr.includes(row) ? 1 : 0), 0);
+  tooltip.innerHTML =
+    `<div><span class="swatch" style="background:${rowColor[row]}"></span><b>${escapeHtml(m.type || '(untyped)')}</b> <span class="k">#${row + 1} of ${n}</span></div>` +
+    `<div><span class="k">bodyId</span> ${m.bodyId}</div>` +
+    `<div><span class="k">class</span> ${escapeHtml(m.class || '—')}${m.side ? ` <span class="k">side</span> ${escapeHtml(m.side)}` : ''}</div>` +
+    `<div><span class="k">transmitter</span> ${escapeHtml(m.nt || 'unknown')} (${m.sign < 0 ? 'inhibitory' : 'excitatory'})${m.sensory ? ' · <b>sensory input</b>' : ''}</div>` +
+    `<div><span class="k">total synaptic weight</span> ${Math.round(m.totalWeight).toLocaleString()}</div>` +
+    `<div><span class="k">spikes, last second</span> ${recent}</div>`;
+  tooltip.style.display = 'block';
+  const x = e.clientX - rect.left, tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
+  tooltip.style.left = Math.min(rect.width - tw - 4, x + 14) + 'px';
+  tooltip.style.top = Math.max(0, Math.min(rect.height - th - 4, y - th / 2)) + 'px';
+});
+raster.addEventListener('mouseleave', () => {
+  tooltip.style.display = 'none';
+  if (hoverRow !== -1) { hoverRow = -1; drawRaster(); }
+});
+
 // ---- WebSocket connection to the local sim server ----
-let ws;
+let ws = null;
 let frameCount = 0;
 let lastHzTime = performance.now();
+let currentStimulus = 0.05;
+
+function setStatus(connected, text) {
+  $('statusDot').className = 'status-dot ' + (connected ? 'connected' : 'disconnected');
+  $('statusText').textContent = text;
+}
+
+function sendStimulus(value) {
+  currentStimulus = Math.max(0, Math.min(1, value));
+  $('stimValue').textContent = Math.round(currentStimulus * 100) + '%';
+  $('stimMeter').style.width = (currentStimulus * 100) + '%';
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ stimulus: currentStimulus }));
+}
 
 function connect() {
-  ws = new WebSocket(`ws://${location.host}/ws`);
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
 
   ws.onopen = () => {
-    document.getElementById('statusDot').className = 'status-dot connected';
-    document.getElementById('statusText').textContent = 'connected — simulation running locally';
+    setStatus(true, 'connected — simulation running locally');
+    if (!usingWebcam) sendStimulus($('stimSlider').value / 100);
   };
   ws.onclose = () => {
-    document.getElementById('statusDot').className = 'status-dot disconnected';
-    document.getElementById('statusText').textContent = 'disconnected — retrying...';
-    setTimeout(connect, 1500);
+    setStatus(false, 'disconnected — retrying...');
+    ws = null;
+    setTimeout(loadNeuronsAndConnect, 1500);   // re-fetch metadata: the server may have a new subgraph
   };
   ws.onmessage = (evt) => {
     const data = JSON.parse(evt.data);
@@ -175,75 +327,111 @@ function connect() {
     if (history.length > HISTORY_LEN) history.shift();
     drawRaster();
 
-    document.getElementById('statSpikes').textContent = data.spikes.length;
-    if (numNeurons > 0 && history.length > 0) {
+    $('statSpikes').textContent = data.spikes.length;
+    if (neurons.length && history.length) {
       const totalSpikes = history.reduce((sum, arr) => sum + arr.length, 0);
-      const rate = (totalSpikes / (numNeurons * history.length)) * 100;
-      document.getElementById('statRate').textContent = rate.toFixed(1) + '%';
+      const hz = (totalSpikes / (neurons.length * history.length)) * (info.step_hz || 30);
+      $('statRate').textContent = hz.toFixed(2) + ' Hz';
     }
     frameCount++;
     const now = performance.now();
     if (now - lastHzTime > 1000) {
-      document.getElementById('statHz').textContent = frameCount + ' fps';
+      $('statHz').textContent = (frameCount * 1000 / (now - lastHzTime)).toFixed(0) + ' steps/s';
       frameCount = 0;
       lastHzTime = now;
     }
   };
 }
 
-fetch('/neurons').then(r => r.json()).then(neurons => {
-  numNeurons = neurons.length;
-  document.getElementById('statNeurons').textContent = numNeurons;
-  resizeCanvas();
-  connect();
-});
+function loadNeuronsAndConnect() {
+  if (ws) return;
+  fetch('/neurons').then(r => {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }).then(meta => {
+    // Accept both the current {neurons: [...], ...} shape and a bare array.
+    const list = Array.isArray(meta) ? meta : meta.neurons;
+    info = Array.isArray(meta) ? { n: list.length, step_hz: 30 } : meta;
+    neurons = list;
+    history = [];
+    $('statNeurons').textContent = list.length.toLocaleString();
+    $('statEdges').textContent = (info.n_edges ?? 0).toLocaleString();
+    $('statPops').textContent = `${info.n_sensory ?? '—'} / ${info.n_inhibitory ?? '—'}`;
+    assignColors();
+    resizeCanvas();
+    connect();
+  }).catch(() => {
+    setStatus(false, 'waiting for local simulation server — retrying...');
+    setTimeout(loadNeuronsAndConnect, 1500);
+  });
+}
+loadNeuronsAndConnect();
 
 // ---- Webcam-driven stimulus ----
-const video = document.getElementById('video');
+const video = $('video');
 const offscreen = document.createElement('canvas');
 offscreen.width = 32; offscreen.height = 32;
-const octx = offscreen.getContext('2d');
+const octx = offscreen.getContext('2d', { willReadFrequently: true });
 let usingWebcam = false;
 let prevFrame = null;
 
-document.getElementById('webcamBtn').onclick = async () => {
+$('webcamBtn').onclick = async () => {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    alert('This browser does not expose a webcam API here. Use the manual slider instead.');
+    return;
+  }
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 } });
     video.srcObject = stream;
     usingWebcam = true;
+    $('webcamBtn').disabled = true;
     requestAnimationFrame(sampleWebcam);
   } catch (e) {
     alert('Could not access webcam: ' + e.message);
   }
 };
 
-document.getElementById('manualBtn').onclick = () => {
+$('manualBtn').onclick = () => {
   usingWebcam = false;
+  prevFrame = null;
+  $('webcamBtn').disabled = false;
+  if (video.srcObject) {
+    video.srcObject.getTracks().forEach(t => t.stop());
+    video.srcObject = null;
+  }
+  sendStimulus($('stimSlider').value / 100);
 };
 
+let lastSent = 0;
 function sampleWebcam() {
-  if (usingWebcam && video.readyState >= 2) {
+  if (!usingWebcam) return;
+  if (video.readyState >= 2) {
     octx.drawImage(video, 0, 0, 32, 32);
     const frame = octx.getImageData(0, 0, 32, 32).data;
     let motion = 0;
     if (prevFrame) {
-      for (let i = 0; i < frame.length; i += 4) {
-        motion += Math.abs(frame[i] - prevFrame[i]);
-      }
+      for (let i = 0; i < frame.length; i += 4) motion += Math.abs(frame[i] - prevFrame[i]);
       motion /= (32 * 32 * 255);
     }
     prevFrame = frame;
-    const intensity = Math.min(1, motion * 4); // motion-driven stimulus
-    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ stimulus: intensity }));
+    // Smooth a little so a single noisy frame doesn't spike the whole network.
+    const target = Math.min(1, motion * 4);
+    const smoothed = currentStimulus * 0.6 + target * 0.4;
+    const now = performance.now();
+    if (now - lastSent > 33) { sendStimulus(smoothed); lastSent = now; }
   }
   requestAnimationFrame(sampleWebcam);
 }
 
 // ---- Manual slider fallback ----
-document.getElementById('stimSlider').oninput = (e) => {
-  if (!usingWebcam && ws && ws.readyState === 1) {
-    ws.send(JSON.stringify({ stimulus: e.target.value / 100 }));
-  }
+$('stimSlider').oninput = (e) => {
+  if (!usingWebcam) sendStimulus(e.target.value / 100);
+};
+
+$('resetBtn').onclick = () => {
+  history = [];
+  drawRaster();
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ reset: true }));
 };
 </script>
 </body>
