@@ -18,3 +18,9 @@ dependencies = [
 # which fails with "Multiple top-level packages discovered in a flat-layout".
 [tool.uv]
 package = false
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

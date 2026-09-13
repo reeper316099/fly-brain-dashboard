@@ -34,15 +34,19 @@ nothing.
 
 ## How it works
 
-1. **Download** — pull two files straight from Google's public storage
+1. **Download** — pull three files straight from Google's public storage
    bucket for the dataset over plain HTTPS: neuron annotations (cell
-   types/classes, 13 MB) and the full synaptic connection-weight graph
-   (1.1 GB). CC-BY licensed, no auth required.
+   types/classes, 14 MB), predicted neurotransmitter per neuron (43 MB),
+   and the synaptic connection-weight graph (500 MB for the
+   "significant connections only" table, or 1.05 GB for the full one).
+   CC-BY licensed, no auth required.
 2. **Build subgraph** — the full graph is too big to simulate live on a
    laptop, so a script picks the ~800 most-connected neurons and saves a
-   small adjacency matrix + metadata.
+   small adjacency matrix + metadata, including whether each neuron is
+   predicted to be excitatory (acetylcholine) or inhibitory (GABA,
+   glutamate).
 3. **Simulate** — a lightweight, dependency-free (no compiled backend)
-   leaky integrate-and-fire (LIF) model runs over that real
+   leaky integrate-and-fire (LIF) model runs over that real, signed
    connectivity, in plain numpy, at 30 steps/sec.
 4. **Serve + visualize** — a local `aiohttp` server broadcasts live spike
    data over WebSocket to a browser dashboard that draws a scrolling
@@ -54,7 +58,8 @@ nothing.
 ## Prerequisites
 
 - **Python 3.10+**
-- **~2 GB free disk space** (1.1 GB download + working room)
+- **~1.5 GB free disk space** (~560 MB download by default, ~2 GB
+  with `--full-weights`, plus working room)
 - A **webcam** if you want to use motion as input (optional — there's a
   manual slider fallback)
 - **git** if you're pushing this to GitHub (see below)
@@ -120,7 +125,7 @@ dependency versions.
 
 ## Running it
 
-### 1. Download the connectome data (one time, ~1.1 GB)
+### 1. Download the connectome data (one time, ~560 MB)
 
 pip/venv:
 ```bash
@@ -131,12 +136,16 @@ uv:
 uv run python scripts/01_download_data.py
 ```
 
-This downloads two files into `data/`:
-- `body-annotations-male-cns-v1.0-minconf-0.5.feather` — cell type/class/side annotations (13 MB)
-- `connectome-weights-male-cns-v1.0-minconf-0.5.feather` — the full weighted connection graph (1.1 GB)
+This downloads three files into `data/`:
+- `body-annotations-male-cns-v1.0-minconf-0.5.feather` — cell type/class/side annotations (14 MB)
+- `body-neurotransmitters-male-cns-v1.0.feather` — predicted neurotransmitter per neuron (43 MB)
+- `connectome-weights-male-cns-v1.0-minconf-0.5-significant-only.feather` — weighted connection graph, strong edges only (500 MB)
 
-It shows a progress bar and skips files that are already downloaded, so
-it's safe to re-run if it gets interrupted partway through.
+Add `--full-weights` to fetch the complete 1.05 GB weight table instead
+(it also includes every 1–2 synapse edge; for a hub subgraph it makes no
+visible difference). Downloads show a progress bar, **resume** from a
+partial `.part` file if interrupted, retry on network errors, and skip
+files that are already complete — so it's always safe to re-run.
 
 ### 2. Build a local subgraph
 
@@ -149,10 +158,21 @@ uv:
 uv run python scripts/02_build_subgraph.py
 ```
 
-This loads the full ~166,700-neuron graph, picks the ~800 most-connected
-neurons (configurable via `N_NEURONS` at the top of the script), and
-saves a small adjacency matrix (`data/subgraph/adjacency.npz`) and
-neuron metadata (`data/subgraph/neurons.json`).
+This loads the full ~166,700-neuron graph (only the three columns it
+needs, to keep memory down), picks the ~800 most-connected annotated
+neurons, and saves a small adjacency matrix
+(`data/subgraph/adjacency.npz`) plus neuron metadata
+(`data/subgraph/neurons.json`: body ID, type, class, side, predicted
+neurotransmitter and excitatory/inhibitory sign).
+
+Options:
+
+```bash
+python scripts/02_build_subgraph.py --n-neurons 1500        # bigger subgraph
+python scripts/02_build_subgraph.py --classes "visual,descending"
+python scripts/02_build_subgraph.py --classes ""            # pure hubs, no class bias
+python scripts/02_build_subgraph.py --help
+```
 
 **Column-name heads up:** the script is set up for the MaleCNS v1.0
 column names (`bodyId` / `type` / `class` / `somaSide` in the
@@ -177,23 +197,32 @@ uv run python server/sim_server.py
 
 Then open **http://localhost:8765/** in your browser.
 
-Stop it any time with `Ctrl+C`.
+Stop it any time with `Ctrl+C`. Flags: `--port 9000`, `--host 0.0.0.0`
+(to reach it from another device on your LAN — note webcam access then
+needs HTTPS or the manual slider), `--hz 60` for a faster simulation.
 
 ---
 
 ## What you'll see
 
 - A live scrolling **raster plot** — each dot is a real neuron from the
-  connectome firing, rows ordered by connection weight (top = biggest
-  hub neurons).
+  connectome firing, coloured by cell class, rows ordered by connection
+  weight (top = biggest hub neurons). The pale band in the left gutter
+  marks the sensory neurons that receive external stimulus.
+- **Hover** any row to see that neuron's body ID, type, class, side,
+  predicted neurotransmitter, and recent spike count. **Click** a class
+  in the legend to hide or show it.
 - An **"Enable Webcam Input"** button — frame-to-frame motion in your
-  webcam feed drives a stimulus current into the most-connected ~80
-  neurons, and you watch that ripple through the network along real
-  synaptic weights.
+  webcam feed drives a stimulus current into up to ~80 of the
+  best-connected visual/sensory neurons, and you watch that ripple
+  through the network along real synaptic weights (with GABA and
+  glutamate connections pulling activity down).
 - A **manual slider** if you'd rather not use the webcam, or want a
-  stable, repeatable stimulus level for testing.
-- Live stats: neuron count, spikes per frame, mean firing rate, and the
-  simulation's actual frame rate.
+  stable, repeatable stimulus level for testing, and a **reset** button
+  that clears the network's membrane state.
+- Live stats: neuron / synapse / sensory / inhibitory counts, spikes per
+  frame, mean firing rate per neuron, and the simulation's actual step
+  rate.
 
 ---
 
@@ -204,19 +233,28 @@ fly-brain-dashboard/
 ├── README.md
 ├── DATA_LICENSE.md
 ├── requirements.txt          # pip/venv dependency list
-├── pyproject.toml            # uv dependency list
+├── pyproject.toml            # uv dependency list (+ pytest dev group)
 ├── .gitignore                # excludes data/ and venv/ from git
 ├── data/                     # created at runtime, gitignored
 │   ├── *.feather              # downloaded connectome files
 │   └── subgraph/               # built adjacency matrix + metadata
 ├── scripts/
-│   ├── 01_download_data.py   # one-time HTTPS download, no API
+│   ├── 01_download_data.py   # one-time resumable HTTPS download, no API
 │   └── 02_build_subgraph.py  # cuts the graph down to a runnable size
 ├── server/
 │   ├── lif_sim.py             # numpy leaky integrate-and-fire model
 │   └── sim_server.py          # aiohttp server: static files + WebSocket
-└── dashboard/
-    └── index.html             # raster plot + webcam input, vanilla JS
+├── dashboard/
+│   └── index.html             # raster plot + webcam input, vanilla JS
+└── tests/                     # pytest suite (runs on tiny synthetic data,
+                               # no download needed)
+```
+
+Run the tests with:
+
+```bash
+uv run pytest            # uv
+python -m pytest         # pip/venv, after `pip install pytest`
 ```
 
 ---
@@ -280,10 +318,15 @@ still blocks it, check your OS-level camera permissions for the
 browser app itself, or just use the manual slider instead.
 
 **Simulation feels too "flat" (barely any spikes) or too "loud" (constant firing)**
-Tune `tau`, `threshold`, and `synaptic_gain` in `server/lif_sim.py` —
-these are simplified starting values, not biologically calibrated ones.
-Lower `threshold` or raise `synaptic_gain` for more activity; the
-reverse for less.
+Tune the values in the "tunables" block near the top of
+`server/lif_sim.py` — these are simplified starting values, not
+biologically calibrated ones. `synaptic_gain` is the input a neuron
+receives when *all* of its presynaptic partners fired on the previous
+step (each neuron's incoming weights are normalised to sum to 1, so hub
+neurons don't dominate); raise it for more cascading activity, lower it
+for less. `noise_std` sets how often neurons fire spontaneously with no
+stimulus, and `stimulus_gain` how hard the webcam/slider drives the
+sensory neurons.
 
 **Port 8765 already in use**
 Change `PORT` near the top of `server/sim_server.py`.
@@ -298,16 +341,16 @@ make sure `pyproject.toml` has `[tool.uv] package = false` and no
 
 ## Where to take it next
 
-- **Bigger/different subgraph** — raise `N_NEURONS` in
-  `02_build_subgraph.py`, or tune `PREFERRED_CLASSES` toward specific
-  circuits (olfactory, a specific descending neuron type, etc.) once
-  you've looked at what class labels actually exist in the annotation
-  file.
-- **Excitatory/inhibitory signs** — every connection is currently
-  treated as excitatory. Download the `body-neurotransmitters` file
-  (add its URL to `01_download_data.py`) to get predicted
-  neurotransmitter per neuron, and use it in `lif_sim.py` to flip
-  inhibitory connections negative.
+- **Bigger/different subgraph** — `--n-neurons 2000`, or `--classes`
+  aimed at specific circuits (olfactory, a specific descending neuron
+  type, etc.) once you've looked at what class labels actually exist in
+  the annotation file.
+- **Better excitatory/inhibitory model** — connections are signed by the
+  presynaptic neuron's predicted neurotransmitter via the `NT_SIGN`
+  table in `02_build_subgraph.py` (ACh +, GABA/glutamate/histamine −,
+  monoamines treated as mildly +). Real synapses depend on the receptor
+  too; the `body-neurotransmitters` file also carries per-neuron
+  confidence values you could use to weight uncertain predictions.
 - **3D fly body** — pair this with `NeuroMechFly` and the skeleton SWC
   files from the dataset to animate an actual fly body instead of, or
   alongside, the raster plot.
@@ -324,7 +367,7 @@ make sure `pyproject.toml` has `[tool.uv] package = false` and no
 - 800 neurons at 30 Hz runs comfortably on basically any laptop from the
   last several years — this is deliberately lightweight pure-numpy code,
   no GPU required.
-- Pushing `N_NEURONS` well past a few thousand will start to bottleneck
+- Pushing `--n-neurons` well past a few thousand will start to bottleneck
   on the per-step sparse matrix multiply in `lif_sim.py`. At that point,
   consider a GPU-backed array library (`cupy`) or a compiled spiking
   simulator backend (`brian2`, `nest`) instead of the numpy loop here.
