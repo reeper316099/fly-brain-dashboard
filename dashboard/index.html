@@ -377,7 +377,16 @@ let prevFrame = null;
 
 $('webcamBtn').onclick = async () => {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    alert('This browser does not expose a webcam API here. Use the manual slider instead.');
+    const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+    const isSecure = location.protocol === 'https:' || isLocal;
+    const msg = isSecure
+      ? 'This browser does not support webcam access. Use the manual slider instead.'
+      : `Browsers only allow webcam access from "localhost" or over HTTPS -- not from a plain ` +
+        `http://${location.hostname} address on another device. Either open this page as ` +
+        `http://localhost:${location.port} directly on the machine running the server, tunnel it there ` +
+        `(e.g. "ssh -L ${location.port}:localhost:${location.port} user@${location.hostname}" then open ` +
+        `http://localhost:${location.port} locally), or use the manual slider instead.`;
+    alert(msg);
     return;
   }
   try {

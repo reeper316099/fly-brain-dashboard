@@ -317,6 +317,24 @@ serves on `localhost:8765`, that should just work. If your browser
 still blocks it, check your OS-level camera permissions for the
 browser app itself, or just use the manual slider instead.
 
+**"This browser does not expose a webcam API here" (opening the dashboard from another device over your LAN)**
+This is the same rule as above, just harder to spot: once you're
+following the [LAN access](#cant-reach-the-dashboard-from-another-device-phone-another-pc--connection-timed-out)
+steps and opening `http://<pc-lan-ip>:8765` from a phone or another
+computer, that's a plain-HTTP, non-`localhost` address — so the browser
+removes `navigator.mediaDevices` entirely (Firefox/Zen, Safari, and
+Chrome all do this; it's not a bug in this project or that browser).
+Three ways around it:
+- Use the **manual slider** from the other device — no browser
+  restriction applies to it.
+- **Tunnel it so it looks like `localhost`** to the other device:
+  `ssh -L 8765:localhost:8765 <user>@<pc-lan-ip>`, then open
+  `http://localhost:8765` on the device you ran that command from. This
+  needs SSH access to the machine running the server.
+- **Serve it over HTTPS** with a real or self-signed certificate in
+  front of the aiohttp server (e.g. a Caddy or nginx reverse proxy) —
+  more setup, only worth it if you'll do this repeatedly.
+
 **Simulation feels too "flat" (barely any spikes) or too "loud" (constant firing)**
 Tune the values in the "tunables" block near the top of
 `server/lif_sim.py` — these are simplified starting values, not
