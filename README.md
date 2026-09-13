@@ -329,7 +329,46 @@ stimulus, and `stimulus_gain` how hard the webcam/slider drives the
 sensory neurons.
 
 **Port 8765 already in use**
-Change `PORT` near the top of `server/sim_server.py`.
+Run with `--port 9000` (or any free port).
+
+**Can't reach the dashboard from another device (phone, another PC) — "connection timed out"**
+By default the server binds to `localhost`, which only accepts
+connections from the same machine — that's why `http://<your-pc-ip>:8765`
+times out from elsewhere on your network, even though `http://localhost:8765`
+works fine locally. Two things to fix:
+
+1. Start the server with `--host 0.0.0.0` so it listens on all network
+   interfaces, not just loopback:
+   ```bash
+   python server/sim_server.py --host 0.0.0.0
+   ```
+   The startup banner then prints the LAN URL to use from other devices
+   (e.g. `http://192.168.1.23:8765/`) — use that, not `localhost`, on the
+   other device.
+2. **Your OS firewall is almost certainly still blocking it** even after
+   that — a timeout (rather than an immediate refusal) is the classic
+   sign of a firewall silently dropping the packets. Allow inbound
+   connections on the port:
+   - **Windows:** Settings → Network & security → Windows Security →
+     Firewall & network protection → Allow an app through firewall, and
+     allow `python.exe` (or `pythonw.exe`) for both Private and Public
+     networks. Or from an elevated PowerShell/cmd:
+     ```
+     netsh advfirewall firewall add rule name="Fly Brain Dashboard" dir=in action=allow protocol=TCP localport=8765
+     ```
+   - **macOS:** System Settings → Network → Firewall → Options, allow
+     incoming connections for `python3`.
+   - **Linux:** `sudo ufw allow 8765/tcp`
+
+   Also confirm both machines are actually on the same network (not one
+   on Wi-Fi guest/isolated network, or a VPN routing traffic elsewhere),
+   and that you're using the PC's actual LAN IP (`ipconfig` on Windows,
+   look for the `IPv4 Address` under your active adapter) — not a VPN or
+   Hyper-V virtual adapter's IP if you have several listed.
+
+   Note the webcam button needs `localhost` or HTTPS to work in most
+   browsers — over plain `http://<lan-ip>:8765/` from another device,
+   use the manual slider instead.
 
 **`uv sync` fails with "Multiple top-level packages discovered in a flat-layout"**
 You have an older copy of `pyproject.toml` that still declares a
