@@ -12,6 +12,9 @@ dependencies = [
     "requests>=2.31",
 ]
 
-[build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
+# This repo is an application (scripts + a server + a static dashboard),
+# not an installable library, so uv only needs to manage the dependencies.
+# Without this, `uv sync` tries to build the project itself with setuptools,
+# which fails with "Multiple top-level packages discovered in a flat-layout".
+[tool.uv]
+package = false

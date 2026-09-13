@@ -163,10 +163,12 @@ function connect() {
   ws.onopen = () => {
     document.getElementById('statusDot').className = 'status-dot connected';
     document.getElementById('statusText').textContent = 'connected — simulation running locally';
+    if (!usingWebcam) sendStimulus(document.getElementById('stimSlider').value / 100);
   };
   ws.onclose = () => {
     document.getElementById('statusDot').className = 'status-dot disconnected';
     document.getElementById('statusText').textContent = 'disconnected — retrying...';
+    ws = null;
     setTimeout(connect, 1500);
   };
   ws.onmessage = (evt) => {
@@ -191,12 +193,21 @@ function connect() {
   };
 }
 
-fetch('/neurons').then(r => r.json()).then(neurons => {
-  numNeurons = neurons.length;
-  document.getElementById('statNeurons').textContent = numNeurons;
-  resizeCanvas();
-  connect();
-});
+function loadNeuronsAndConnect() {
+  fetch('/neurons').then(r => {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }).then(neurons => {
+    numNeurons = neurons.length;
+    document.getElementById('statNeurons').textContent = numNeurons;
+    resizeCanvas();
+    connect();
+  }).catch(() => {
+    document.getElementById('statusText').textContent = 'waiting for local simulation server — retrying...';
+    setTimeout(loadNeuronsAndConnect, 1500);
+  });
+}
+loadNeuronsAndConnect();
 
 // ---- Webcam-driven stimulus ----
 const video = document.getElementById('video');
@@ -217,8 +228,18 @@ document.getElementById('webcamBtn').onclick = async () => {
   }
 };
 
+function sendStimulus(value) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ stimulus: value }));
+}
+
 document.getElementById('manualBtn').onclick = () => {
   usingWebcam = false;
+  prevFrame = null;
+  if (video.srcObject) {
+    video.srcObject.getTracks().forEach(t => t.stop());
+    video.srcObject = null;
+  }
+  sendStimulus(document.getElementById('stimSlider').value / 100);
 };
 
 function sampleWebcam() {
@@ -234,16 +255,14 @@ function sampleWebcam() {
     }
     prevFrame = frame;
     const intensity = Math.min(1, motion * 4); // motion-driven stimulus
-    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ stimulus: intensity }));
+    sendStimulus(intensity);
   }
-  requestAnimationFrame(sampleWebcam);
+  if (usingWebcam) requestAnimationFrame(sampleWebcam);
 }
 
 // ---- Manual slider fallback ----
 document.getElementById('stimSlider').oninput = (e) => {
-  if (!usingWebcam && ws && ws.readyState === 1) {
-    ws.send(JSON.stringify({ stimulus: e.target.value / 100 }));
-  }
+  if (!usingWebcam) sendStimulus(e.target.value / 100);
 };
 </script>
 </body>

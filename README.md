@@ -154,13 +154,15 @@ neurons (configurable via `N_NEURONS` at the top of the script), and
 saves a small adjacency matrix (`data/subgraph/adjacency.npz`) and
 neuron metadata (`data/subgraph/neurons.json`).
 
-**Column-name heads up:** Janelia's exact column names can shift
-slightly between dataset releases. This script prints every column it
-finds in both files before doing anything else. If it can't confidently
-guess which columns are the neuron ID / cell type / connection weight,
-it stops and tells you exactly what columns exist so you can add the
-right name to the `find_col()` candidate lists near the top of the file
-— it's a one-line fix, not a rewrite.
+**Column-name heads up:** the script is set up for the MaleCNS v1.0
+column names (`bodyId` / `type` / `class` / `somaSide` in the
+annotations, `body_pre` / `body_post` / `weight` in the connection
+table). Janelia's names can shift between dataset releases, so it
+prints every column it finds in both files before doing anything else.
+If it can't confidently guess which columns are the neuron ID / cell
+type / connection weight, it stops and tells you exactly what columns
+exist so you can add the right name to the `find_col()` candidate lists
+near the top of the file — it's a one-line fix, not a rewrite.
 
 ### 3. Run the simulation server
 
@@ -284,7 +286,13 @@ Lower `threshold` or raise `synaptic_gain` for more activity; the
 reverse for less.
 
 **Port 8765 already in use**
-Change the `port=8765` argument in `main()` in `server/sim_server.py`.
+Change `PORT` near the top of `server/sim_server.py`.
+
+**`uv sync` fails with "Multiple top-level packages discovered in a flat-layout"**
+You have an older copy of `pyproject.toml` that still declares a
+`[build-system]`. This project is an app, not an installable package —
+make sure `pyproject.toml` has `[tool.uv] package = false` and no
+`[build-system]` table, then re-run `uv sync`.
 
 ---
 

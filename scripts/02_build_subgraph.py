@@ -31,7 +31,7 @@ from scipy import sparse
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 OUT_DIR = DATA_DIR / "subgraph"
-OUT_DIR.mkdir(exist_ok=True)
+OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 ANNOT_FILE = DATA_DIR / "body-annotations-male-cns-v1.0-minconf-0.5.feather"
 WEIGHTS_FILE = DATA_DIR / "connectome-weights-male-cns-v1.0-minconf-0.5.feather"
@@ -63,10 +63,10 @@ def main() -> None:
     annot = pd.read_feather(ANNOT_FILE)
     print(f"  {len(annot):,} annotated neurons. Columns: {list(annot.columns)}")
 
-    id_col = find_col(annot, ["bodyid", "body_id", "bodyid_", "id"])
+    id_col = find_col(annot, ["bodyid", "body_id", "body", "id"])
     type_col = find_col(annot, ["type", "celltype", "cell_type"])
     class_col = find_col(annot, ["class", "superclass", "cellclass"])
-    side_col = find_col(annot, ["side"])
+    side_col = find_col(annot, ["somaside", "rootside", "side"])
 
     if id_col is None:
         raise SystemExit(
@@ -102,7 +102,11 @@ def main() -> None:
     deg.columns = ["out", "in"]
     deg["total"] = deg["out"] + deg["in"]
 
-    candidate_ids = deg.index
+    # Keep only bodies that are annotated neurons, so the "top hubs" are real
+    # cells rather than unlabelled fragments that happen to carry synapses.
+    annotated_ids = set(annot[id_col].dropna().astype("int64"))
+    deg = deg.loc[deg.index.isin(annotated_ids)]
+    print(f"  {len(deg):,} annotated neurons carry synapses.")
 
     if PREFERRED_CLASSES and (class_col or type_col):
         text_col = class_col or type_col
@@ -131,15 +135,22 @@ def main() -> None:
     print(f"  {W.nnz:,} edges kept inside the subgraph.")
 
     # Neuron metadata for labeling in the dashboard.
-    annot_indexed = annot.set_index(id_col)
+    annot_indexed = annot.drop_duplicates(subset=id_col).set_index(id_col)
+
+    def label(row, col: str | None) -> str:
+        if not col:
+            return ""
+        val = row.get(col, "")
+        return "" if pd.isna(val) else str(val)
+
     meta = []
     for bid in chosen_ids:
         row = annot_indexed.loc[bid] if bid in annot_indexed.index else {}
         meta.append({
             "bodyId": int(bid),
-            "type": str(row.get(type_col, "")) if type_col else "",
-            "class": str(row.get(class_col, "")) if class_col else "",
-            "side": str(row.get(side_col, "")) if side_col else "",
+            "type": label(row, type_col),
+            "class": label(row, class_col),
+            "side": label(row, side_col),
             "totalWeight": float(chosen.loc[bid, "total"]),
         })
 

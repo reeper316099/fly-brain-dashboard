@@ -16,17 +16,25 @@ from __future__ import annotations
 import asyncio
 import json
 import pathlib
+import sys
 import time
 
 from aiohttp import web, WSMsgType
 
-from lif_sim import FlyBrainSim
+# Make `lif_sim` importable whether this is run as `python server/sim_server.py`
+# or from some other working directory / launcher.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from lif_sim import FlyBrainSim  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SUBGRAPH_DIR = ROOT / "data" / "subgraph"
 DASHBOARD_DIR = ROOT / "dashboard"
 
+HOST = "localhost"
+PORT = 8765
 STEP_HZ = 30  # simulation + broadcast rate
+
+SIM_TASK = web.AppKey("sim_task", asyncio.Task)
 
 sim: FlyBrainSim | None = None
 clients: set[web.WebSocketResponse] = set()
@@ -70,10 +78,13 @@ async def sim_loop() -> None:
         payload = json.dumps(result)
 
         dead = []
-        for ws in clients:
+        for ws in list(clients):
+            if ws.closed:
+                dead.append(ws)
+                continue
             try:
                 await ws.send_str(payload)
-            except ConnectionResetError:
+            except Exception:  # client went away mid-send; drop it
                 dead.append(ws)
         for ws in dead:
             clients.discard(ws)
@@ -84,24 +95,38 @@ async def sim_loop() -> None:
 
 async def on_startup(app: web.Application) -> None:
     global sim
-    if not (SUBGRAPH_DIR / "adjacency.npz").exists():
-        raise SystemExit(
-            "No subgraph found. Run scripts/01_download_data.py then "
-            "scripts/02_build_subgraph.py before starting the server."
-        )
     sim = FlyBrainSim(SUBGRAPH_DIR)
     print(f"Loaded subgraph with {sim.n} neurons, {sim.W.nnz} edges.")
-    app["sim_task"] = asyncio.create_task(sim_loop())
+    app[SIM_TASK] = asyncio.create_task(sim_loop())
+
+
+async def on_cleanup(app: web.Application) -> None:
+    task = app.get(SIM_TASK)
+    if task is not None:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 def main() -> None:
+    if not (SUBGRAPH_DIR / "adjacency.npz").exists() or not (SUBGRAPH_DIR / "neurons.json").exists():
+        raise SystemExit(
+            f"No subgraph found in {SUBGRAPH_DIR}.\n"
+            "Run scripts/01_download_data.py and then scripts/02_build_subgraph.py "
+            "before starting the server."
+        )
+
     app = web.Application()
     app.router.add_get("/", index)
     app.router.add_get("/neurons", neurons_meta)
     app.router.add_get("/ws", ws_handler)
     app.router.add_static("/static/", DASHBOARD_DIR, show_index=False)
     app.on_startup.append(on_startup)
-    web.run_app(app, host="localhost", port=8765)
+    app.on_cleanup.append(on_cleanup)
+    print(f"Dashboard: http://{HOST}:{PORT}/   (Ctrl+C to stop)")
+    web.run_app(app, host=HOST, port=PORT, print=None)
 
 
 if __name__ == "__main__":
