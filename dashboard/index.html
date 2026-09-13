@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Fly Brain — Live Connectome Dashboard</title>
+<style>
+  :root {
+    --bg: #0b0e14;
+    --panel: #141925;
+    --primary: #7dd3fc;
+    --secondary: #a78bfa;
+    --accent: #f472b6;
+    --text: #e5e7eb;
+    --muted: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: radial-gradient(circle at top, #131826 0%, var(--bg) 60%);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    padding: 24px;
+  }
+  h1 {
+    font-size: 20px;
+    margin: 0 0 4px 0;
+    background: linear-gradient(90deg, var(--primary), var(--secondary));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    font-weight: 700;
+  }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 16px;
+  }
+  .card {
+    background: var(--panel);
+    border-radius: 14px;
+    padding: 16px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+    border: 1px solid rgba(255,255,255,0.04);
+  }
+  .card h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin: 0 0 10px 0;
+  }
+  canvas { width: 100%; display: block; border-radius: 8px; background: #05070c; }
+  #raster { height: 320px; }
+  #video { width: 100%; border-radius: 8px; background: #000; transform: scaleX(-1); }
+  .stat-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  .stat-row span:first-child { color: var(--muted); }
+  .stat-row span:last-child { font-variant-numeric: tabular-nums; color: var(--primary); }
+  .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+  button {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    border: none;
+    color: #0b0e14;
+    font-weight: 600;
+    padding: 10px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  button.secondary {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid rgba(255,255,255,0.15);
+  }
+  input[type=range] { width: 100%; accent-color: var(--primary); }
+  .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .connected { background: #4ade80; box-shadow: 0 0 8px #4ade80; }
+  .disconnected { background: #f87171; }
+  .legend { font-size: 12px; color: var(--muted); margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<h1>Fly Brain — Live Connectome Dashboard</h1>
+<div class="sub">
+  <span id="statusDot" class="status-dot disconnected"></span>
+  <span id="statusText">connecting to local simulation...</span>
+  &nbsp;·&nbsp; MaleCNS v1.0 subgraph, running 100% locally
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h2>Neural Activity — Spike Raster</h2>
+    <canvas id="raster"></canvas>
+    <div class="legend">Each dot = one neuron firing. Rows are ordered by connection weight (top = most-connected hubs). Scrolls left to right.</div>
+  </div>
+
+  <div class="card">
+    <h2>Input Feed &amp; Stats</h2>
+    <video id="video" autoplay muted playsinline></video>
+    <div class="controls">
+      <button id="webcamBtn">Enable Webcam Input</button>
+      <button id="manualBtn" class="secondary">Use Manual Slider Instead</button>
+      <div>
+        <label for="stimSlider" style="font-size:12px;color:var(--muted);">Manual stimulus intensity</label>
+        <input type="range" id="stimSlider" min="0" max="100" value="5">
+      </div>
+    </div>
+    <div style="margin-top:14px;">
+      <div class="stat-row"><span>Neurons in subgraph</span><span id="statNeurons">—</span></div>
+      <div class="stat-row"><span>Spikes this frame</span><span id="statSpikes">—</span></div>
+      <div class="stat-row"><span>Mean firing rate</span><span id="statRate">—</span></div>
+      <div class="stat-row"><span>Sim step rate</span><span id="statHz">—</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const raster = document.getElementById('raster');
+const rctx = raster.getContext('2d');
+const dpr = window.devicePixelRatio || 1;
+
+let numNeurons = 0;
+let history = [];          // rolling buffer of spike-id arrays, one per frame
+const HISTORY_LEN = 240;   // ~8s at 30Hz
+
+function resizeCanvas() {
+  const rect = raster.getBoundingClientRect();
+  raster.width = rect.width * dpr;
+  raster.height = 320 * dpr;
+  rctx.scale(dpr, dpr);
+}
+window.addEventListener('resize', resizeCanvas);
+
+function drawRaster() {
+  const w = raster.width / dpr;
+  const h = raster.height / dpr;
+  rctx.fillStyle = '#05070c';
+  rctx.fillRect(0, 0, w, h);
+  if (numNeurons === 0) return;
+
+  const colW = w / HISTORY_LEN;
+  const rowH = h / numNeurons;
+
+  history.forEach((spikeIds, col) => {
+    const x = col * colW;
+    const hue = 190 + (col / HISTORY_LEN) * 60;
+    rctx.fillStyle = `hsl(${hue}, 90%, 65%)`;
+    spikeIds.forEach(id => {
+      rctx.fillRect(x, id * rowH, Math.max(1, colW), Math.max(1, rowH));
+    });
+  });
+}
+
+// ---- WebSocket connection to the local sim server ----
+let ws;
+let frameCount = 0;
+let lastHzTime = performance.now();
+
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+
+  ws.onopen = () => {
+    document.getElementById('statusDot').className = 'status-dot connected';
+    document.getElementById('statusText').textContent = 'connected — simulation running locally';
+  };
+  ws.onclose = () => {
+    document.getElementById('statusDot').className = 'status-dot disconnected';
+    document.getElementById('statusText').textContent = 'disconnected — retrying...';
+    setTimeout(connect, 1500);
+  };
+  ws.onmessage = (evt) => {
+    const data = JSON.parse(evt.data);
+    history.push(data.spikes);
+    if (history.length > HISTORY_LEN) history.shift();
+    drawRaster();
+
+    document.getElementById('statSpikes').textContent = data.spikes.length;
+    if (numNeurons > 0 && history.length > 0) {
+      const totalSpikes = history.reduce((sum, arr) => sum + arr.length, 0);
+      const rate = (totalSpikes / (numNeurons * history.length)) * 100;
+      document.getElementById('statRate').textContent = rate.toFixed(1) + '%';
+    }
+    frameCount++;
+    const now = performance.now();
+    if (now - lastHzTime > 1000) {
+      document.getElementById('statHz').textContent = frameCount + ' fps';
+      frameCount = 0;
+      lastHzTime = now;
+    }
+  };
+}
+
+fetch('/neurons').then(r => r.json()).then(neurons => {
+  numNeurons = neurons.length;
+  document.getElementById('statNeurons').textContent = numNeurons;
+  resizeCanvas();
+  connect();
+});
+
+// ---- Webcam-driven stimulus ----
+const video = document.getElementById('video');
+const offscreen = document.createElement('canvas');
+offscreen.width = 32; offscreen.height = 32;
+const octx = offscreen.getContext('2d');
+let usingWebcam = false;
+let prevFrame = null;
+
+document.getElementById('webcamBtn').onclick = async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    video.srcObject = stream;
+    usingWebcam = true;
+    requestAnimationFrame(sampleWebcam);
+  } catch (e) {
+    alert('Could not access webcam: ' + e.message);
+  }
+};
+
+document.getElementById('manualBtn').onclick = () => {
+  usingWebcam = false;
+};
+
+function sampleWebcam() {
+  if (usingWebcam && video.readyState >= 2) {
+    octx.drawImage(video, 0, 0, 32, 32);
+    const frame = octx.getImageData(0, 0, 32, 32).data;
+    let motion = 0;
+    if (prevFrame) {
+      for (let i = 0; i < frame.length; i += 4) {
+        motion += Math.abs(frame[i] - prevFrame[i]);
+      }
+      motion /= (32 * 32 * 255);
+    }
+    prevFrame = frame;
+    const intensity = Math.min(1, motion * 4); // motion-driven stimulus
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ stimulus: intensity }));
+  }
+  requestAnimationFrame(sampleWebcam);
+}
+
+// ---- Manual slider fallback ----
+document.getElementById('stimSlider').oninput = (e) => {
+  if (!usingWebcam && ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ stimulus: e.target.value / 100 }));
+  }
+};
+</script>
+</body>
+</html>
