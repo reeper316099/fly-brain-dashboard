@@ -132,6 +132,7 @@
         <label>Stimulus currently sent to the sensory neurons: <span id="stimValue">5%</span></label>
         <div class="meter"><div id="stimMeter"></div></div>
       </div>
+      <div id="webcamDebug" class="hint" style="display:none;"></div>
       <div class="row">
         <button id="resetBtn" class="secondary">Reset Network State</button>
       </div>
@@ -394,7 +395,19 @@ $('webcamBtn').onclick = async () => {
     video.srcObject = stream;
     usingWebcam = true;
     $('webcamBtn').disabled = true;
+    $('webcamDebug').style.display = 'block';
+    $('webcamDebug').textContent = 'waiting for camera frames...';
     requestAnimationFrame(sampleWebcam);
+    // If no real frame shows up in a few seconds, the stream is probably
+    // dead (camera claimed by another app, permission granted but blocked
+    // at the OS level, etc.) rather than just slow to start.
+    setTimeout(() => {
+      if (usingWebcam && video.readyState < 2) {
+        alert('The webcam stream started but no video frames have arrived after 4 seconds. ' +
+              'Check that no other app has the camera locked, and that your OS-level camera ' +
+              'permission for this browser is actually granted (not just the page-level prompt).');
+      }
+    }, 4000);
   } catch (e) {
     alert('Could not access webcam: ' + e.message);
   }
@@ -404,12 +417,28 @@ $('manualBtn').onclick = () => {
   usingWebcam = false;
   prevFrame = null;
   $('webcamBtn').disabled = false;
+  $('webcamDebug').style.display = 'none';
   if (video.srcObject) {
     video.srcObject.getTracks().forEach(t => t.stop());
     video.srcObject = null;
   }
   sendStimulus($('stimSlider').value / 100);
 };
+
+// Motion detector: average per-pixel brightness change (all three colour
+// channels, not just red -- a single channel can barely move when the
+// thing in frame is a fairly uniform colour against a similar background)
+// between consecutive 32x32 downsamples of the video.
+//
+// The raw per-frame reading is smoothed asymmetrically, like an audio
+// peak meter: it RISES fast (a real motion event reaches the network in
+// a frame or two instead of being averaged away) and FALLS slowly (so a
+// brief swat stays visible for a bit instead of vanishing by the time
+// you look at the number), rather than a single symmetric average that
+// blunts both ends.
+const MOTION_GAIN = 5;
+const RISE = 0.75;   // weight on a new reading when it's higher than current
+const FALL = 0.12;   // weight on a new reading when it's lower (slow decay)
 
 let lastSent = 0;
 function sampleWebcam() {
@@ -419,13 +448,20 @@ function sampleWebcam() {
     const frame = octx.getImageData(0, 0, 32, 32).data;
     let motion = 0;
     if (prevFrame) {
-      for (let i = 0; i < frame.length; i += 4) motion += Math.abs(frame[i] - prevFrame[i]);
-      motion /= (32 * 32 * 255);
+      for (let i = 0; i < frame.length; i += 4) {
+        motion += Math.abs(frame[i] - prevFrame[i]) + Math.abs(frame[i + 1] - prevFrame[i + 1]) + Math.abs(frame[i + 2] - prevFrame[i + 2]);
+      }
+      motion /= (32 * 32 * 3 * 255);
     }
     prevFrame = frame;
-    // Smooth a little so a single noisy frame doesn't spike the whole network.
-    const target = Math.min(1, motion * 4);
-    const smoothed = currentStimulus * 0.6 + target * 0.4;
+
+    const target = Math.min(1, motion * MOTION_GAIN);
+    const alpha = target > currentStimulus ? RISE : FALL;
+    const smoothed = currentStimulus * (1 - alpha) + target * alpha;
+
+    $('webcamDebug').textContent =
+      `raw motion: ${(motion * 100).toFixed(2)}%  →  gained: ${(target * 100).toFixed(1)}%  →  sent (smoothed): ${(smoothed * 100).toFixed(1)}%`;
+
     const now = performance.now();
     if (now - lastSent > 33) { sendStimulus(smoothed); lastSent = now; }
   }
