@@ -151,9 +151,27 @@ def make_app(step_hz: float) -> web.Application:
     return app
 
 
+def lan_ip() -> str | None:
+    """Best-effort guess at this machine's LAN IP, for the startup banner.
+
+    Opens no real connection -- UDP connect() just asks the OS to pick the
+    outbound interface/address for that destination, which is normally the
+    LAN adapter. Falls back to None (e.g. no network) rather than raising.
+    """
+    import socket
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+    except OSError:
+        return None
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Serve the fly-brain dashboard locally.")
-    parser.add_argument("--host", default="localhost")
+    parser.add_argument("--host", default="localhost",
+                        help="bind address (default: localhost, i.e. this machine only). "
+                             "Use --host 0.0.0.0 to allow other devices on your LAN to connect.")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--hz", type=float, default=30.0, help="simulation steps per second (default 30)")
     args = parser.parse_args(argv)
@@ -166,6 +184,20 @@ def main(argv: list[str] | None = None) -> None:
         )
 
     print(f"Dashboard: http://{args.host}:{args.port}/   (Ctrl+C to stop)")
+    if args.host in ("localhost", "127.0.0.1"):
+        print("Bound to localhost only -- other devices on your network cannot reach this. "
+              "Re-run with --host 0.0.0.0 to allow LAN access (webcam input then needs HTTPS; "
+              "the manual slider still works over plain HTTP).")
+    else:
+        ip = lan_ip()
+        if ip:
+            print(f"Bound to {args.host} -- from another device on your network, try: http://{ip}:{args.port}/")
+        print("If other devices still can't connect: your OS firewall is almost certainly blocking it.")
+        print("  Windows: Settings > Network & security > Firewall > Allow an app through firewall")
+        print(f"           (or: netsh advfirewall firewall add rule name=\"Fly Brain Dashboard\" "
+              f"dir=in action=allow protocol=TCP localport={args.port})")
+        print("  macOS:   System Settings > Network > Firewall > Options, allow incoming for python3")
+        print("  Linux:   sudo ufw allow " + str(args.port) + "/tcp")
     web.run_app(make_app(args.hz), host=args.host, port=args.port, print=None)
 
 

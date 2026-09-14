@@ -317,6 +317,24 @@ serves on `localhost:8765`, that should just work. If your browser
 still blocks it, check your OS-level camera permissions for the
 browser app itself, or just use the manual slider instead.
 
+**"This browser does not expose a webcam API here" (opening the dashboard from another device over your LAN)**
+This is the same rule as above, just harder to spot: once you're
+following the [LAN access](#cant-reach-the-dashboard-from-another-device-phone-another-pc--connection-timed-out)
+steps and opening `http://<pc-lan-ip>:8765` from a phone or another
+computer, that's a plain-HTTP, non-`localhost` address — so the browser
+removes `navigator.mediaDevices` entirely (Firefox/Zen, Safari, and
+Chrome all do this; it's not a bug in this project or that browser).
+Three ways around it:
+- Use the **manual slider** from the other device — no browser
+  restriction applies to it.
+- **Tunnel it so it looks like `localhost`** to the other device:
+  `ssh -L 8765:localhost:8765 <user>@<pc-lan-ip>`, then open
+  `http://localhost:8765` on the device you ran that command from. This
+  needs SSH access to the machine running the server.
+- **Serve it over HTTPS** with a real or self-signed certificate in
+  front of the aiohttp server (e.g. a Caddy or nginx reverse proxy) —
+  more setup, only worth it if you'll do this repeatedly.
+
 **Simulation feels too "flat" (barely any spikes) or too "loud" (constant firing)**
 Tune the values in the "tunables" block near the top of
 `server/lif_sim.py` — these are simplified starting values, not
@@ -329,7 +347,46 @@ stimulus, and `stimulus_gain` how hard the webcam/slider drives the
 sensory neurons.
 
 **Port 8765 already in use**
-Change `PORT` near the top of `server/sim_server.py`.
+Run with `--port 9000` (or any free port).
+
+**Can't reach the dashboard from another device (phone, another PC) — "connection timed out"**
+By default the server binds to `localhost`, which only accepts
+connections from the same machine — that's why `http://<your-pc-ip>:8765`
+times out from elsewhere on your network, even though `http://localhost:8765`
+works fine locally. Two things to fix:
+
+1. Start the server with `--host 0.0.0.0` so it listens on all network
+   interfaces, not just loopback:
+   ```bash
+   python server/sim_server.py --host 0.0.0.0
+   ```
+   The startup banner then prints the LAN URL to use from other devices
+   (e.g. `http://192.168.1.23:8765/`) — use that, not `localhost`, on the
+   other device.
+2. **Your OS firewall is almost certainly still blocking it** even after
+   that — a timeout (rather than an immediate refusal) is the classic
+   sign of a firewall silently dropping the packets. Allow inbound
+   connections on the port:
+   - **Windows:** Settings → Network & security → Windows Security →
+     Firewall & network protection → Allow an app through firewall, and
+     allow `python.exe` (or `pythonw.exe`) for both Private and Public
+     networks. Or from an elevated PowerShell/cmd:
+     ```
+     netsh advfirewall firewall add rule name="Fly Brain Dashboard" dir=in action=allow protocol=TCP localport=8765
+     ```
+   - **macOS:** System Settings → Network → Firewall → Options, allow
+     incoming connections for `python3`.
+   - **Linux:** `sudo ufw allow 8765/tcp`
+
+   Also confirm both machines are actually on the same network (not one
+   on Wi-Fi guest/isolated network, or a VPN routing traffic elsewhere),
+   and that you're using the PC's actual LAN IP (`ipconfig` on Windows,
+   look for the `IPv4 Address` under your active adapter) — not a VPN or
+   Hyper-V virtual adapter's IP if you have several listed.
+
+   Note the webcam button needs `localhost` or HTTPS to work in most
+   browsers — over plain `http://<lan-ip>:8765/` from another device,
+   use the manual slider instead.
 
 **`uv sync` fails with "Multiple top-level packages discovered in a flat-layout"**
 You have an older copy of `pyproject.toml` that still declares a
